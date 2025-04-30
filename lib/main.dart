@@ -9,6 +9,8 @@ import 'package:flutter_background_service_android/flutter_background_service_an
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:onesignal_flutter/onesignal_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:http/http.dart' as http; // Add this for API calls
+import 'dart:async'; // Add this for Timer
 import 'screens/stopwatch_screen.dart';
 import 'bloc/stopwatch_bloc.dart';
 
@@ -30,7 +32,6 @@ void setupNotificationListener() {
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Setup notification channel before starting background service
   await setupNotificationChannel();
   setupNotificationListener();
 
@@ -64,7 +65,6 @@ Future<void> setupNotificationChannel() async {
 
   await flutterLocalNotificationsPlugin.initialize(initSettings);
 
-  // Create the notification channel
   const notificationChannelId = 'clocky_notification_channel';
 
   await flutterLocalNotificationsPlugin
@@ -87,7 +87,6 @@ Future<void> initializeBackgroundService() async {
 
     const notificationChannelId = 'clocky_notification_channel';
 
-    // First check if the service is already running
     final isRunning = await service.isRunning();
     if (isRunning) {
       service.invoke('stopService');
@@ -118,7 +117,6 @@ Future<void> initializeBackgroundService() async {
     }
   } catch (e) {
     debugPrint('Background service configuration failed: $e');
-    // Reset background operation preference if service fails to initialize
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('bgOperation', false);
   }
@@ -131,7 +129,7 @@ void onStart(ServiceInstance service) async {
   if (service is AndroidServiceInstance) {
     service.setForegroundNotificationInfo(
       title: "Clocky Running",
-      content: "Stopwatch and Counter are active in the background",
+      content: "Stopwatch, Counter, and API calls active in the background",
     );
     service.setAutoStartOnBootMode(true);
   }
@@ -143,7 +141,6 @@ void onStart(ServiceInstance service) async {
   DateTime lastUpdate =
       lastUpdateStr != null ? DateTime.parse(lastUpdateStr) : DateTime.now();
 
-  // Load persisted state when service starts
   await stopwatchManager.loadState();
   debugPrint(
     'Background Service: Loaded stopwatch state: elapsed=${stopwatchManager.totalElapsedSeconds}s',
@@ -167,7 +164,6 @@ void onStart(ServiceInstance service) async {
 
   service.on('stopService').listen((event) async {
     debugPrint('Background Service: Received stop service request');
-    // Save state before stopping
     await stopwatchManager.saveState();
     await prefs.setInt('counter_value', counter);
     await prefs.setString('counter_last_update', lastUpdate.toIso8601String());
@@ -179,11 +175,53 @@ void onStart(ServiceInstance service) async {
     }
   });
 
-  // Add a periodic update loop
+  // Periodic API calls every 10 seconds
+  Timer.periodic(const Duration(seconds: 10), (timer) async {
+    debugPrint('🚀 Starting API call at ${DateTime.now()} 🚀');
+    try {
+      debugPrint(
+        '🌐 Hitting API: http://192.168.10.249:7777/api/v1/brand-insert 🌐',
+      );
+      debugPrint('📤 Sending data: {"counter": $counter} 📤');
+      debugPrint('🔍 Checking network connectivity... 🔍');
+      // Optional: Add connectivity check if using connectivity_plus package
+      final response = await http
+          .get(
+            Uri.parse('http://192.168.10.249:7777/api/v1/brand-insert'),
+            headers: {'Content-Type': 'application/json'},
+          )
+          .timeout(
+            const Duration(seconds: 10),
+            onTimeout: () {
+              debugPrint('⏰ API call timed out after 10 seconds ⏰');
+              throw TimeoutException('API call timed out');
+            },
+          );
+      debugPrint('✅ API Response Status: ${response.statusCode} ✅');
+      debugPrint('📡 API Response Body: ${response.body} 📡');
+
+      if (service is AndroidServiceInstance) {
+        service.setForegroundNotificationInfo(
+          title: "Clocky Running 🎉",
+          content: "Last API success: ${DateTime.now()} - Counter: $counter",
+        );
+      }
+    } catch (e) {
+      debugPrint('❌ API Error: $e ❌');
+      if (service is AndroidServiceInstance) {
+        service.setForegroundNotificationInfo(
+          title: "Clocky Running 😢",
+          content: "API failed at ${DateTime.now()} - Counter: $counter",
+        );
+      }
+    }
+    debugPrint('🏁 API call finished at ${DateTime.now()} 🏁');
+  });
+
+  // Existing counter and stopwatch update loop
   try {
     debugPrint('Background Service: Starting main service loop');
     while (true) {
-      // Update counter every 2 seconds
       final now = DateTime.now();
       final difference = now.difference(lastUpdate).inSeconds;
       if (difference >= 2) {
@@ -198,13 +236,10 @@ void onStart(ServiceInstance service) async {
         debugPrint('Background Service: Counter value: $counter');
       }
 
-      // Always send the current total time (including accumulated time)
       final totalSeconds = stopwatchManager.totalElapsedSeconds;
       service.invoke('update', {'seconds': totalSeconds, 'counter': counter});
 
-      // Periodically save state
       if (DateTime.now().second % 10 == 0) {
-        // Save every 10 seconds
         await stopwatchManager.saveState();
       }
 
@@ -212,7 +247,6 @@ void onStart(ServiceInstance service) async {
     }
   } catch (e) {
     debugPrint('Background Service: Error in main loop: $e');
-    // Save state before error
     await stopwatchManager.saveState();
     await prefs.setInt('counter_value', counter);
     await prefs.setString('counter_last_update', lastUpdate.toIso8601String());
