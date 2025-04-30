@@ -1,18 +1,47 @@
+import 'package:clocky/firebase_options.dart';
 import 'package:clocky/models/stopwatch_manager.dart';
+import 'package:clocky/services/firebase_msg.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_background_service/flutter_background_service.dart';
 import 'package:flutter_background_service_android/flutter_background_service_android.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:onesignal_flutter/onesignal_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'screens/stopwatch_screen.dart';
 import 'bloc/stopwatch_bloc.dart';
+
+// Add notification listener
+void setupNotificationListener() {
+  FlutterLocalNotificationsPlugin().initialize(
+    const InitializationSettings(
+      android: AndroidInitializationSettings('@mipmap/ic_launcher'),
+      iOS: DarwinInitializationSettings(),
+    ),
+    onDidReceiveNotificationResponse: (NotificationResponse response) async {
+      final prefs = await SharedPreferences.getInstance();
+      final counter = prefs.getInt('counter_value') ?? 0;
+      debugPrint('🔔 Notification Received! Counter was at: $counter 🔔');
+    },
+  );
+}
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   // Setup notification channel before starting background service
   await setupNotificationChannel();
+  setupNotificationListener();
+
+  OneSignal.Debug.setLogLevel(OSLogLevel.verbose);
+  OneSignal.initialize("9f765128-330a-4140-a7fc-95c4fe665fac");
+
+  OneSignal.Notifications.requestPermission(true);
+
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+
+  await FirebaseMsg().initFCM();
 
   try {
     await initializeBackgroundService();
@@ -102,12 +131,17 @@ void onStart(ServiceInstance service) async {
   if (service is AndroidServiceInstance) {
     service.setForegroundNotificationInfo(
       title: "Clocky Running",
-      content: "Stopwatch is active in the background",
+      content: "Stopwatch and Counter are active in the background",
     );
     service.setAutoStartOnBootMode(true);
   }
 
   final stopwatchManager = StopwatchManager();
+  final prefs = await SharedPreferences.getInstance();
+  int counter = prefs.getInt('counter_value') ?? 0;
+  String? lastUpdateStr = prefs.getString('counter_last_update');
+  DateTime lastUpdate =
+      lastUpdateStr != null ? DateTime.parse(lastUpdateStr) : DateTime.now();
 
   // Load persisted state when service starts
   await stopwatchManager.loadState();
@@ -135,6 +169,8 @@ void onStart(ServiceInstance service) async {
     debugPrint('Background Service: Received stop service request');
     // Save state before stopping
     await stopwatchManager.saveState();
+    await prefs.setInt('counter_value', counter);
+    await prefs.setString('counter_last_update', lastUpdate.toIso8601String());
     try {
       await service.stopSelf();
       debugPrint('Background Service: Service stopped successfully');
@@ -147,9 +183,24 @@ void onStart(ServiceInstance service) async {
   try {
     debugPrint('Background Service: Starting main service loop');
     while (true) {
+      // Update counter every 2 seconds
+      final now = DateTime.now();
+      final difference = now.difference(lastUpdate).inSeconds;
+      if (difference >= 2) {
+        counter = (counter + 1) % 101;
+        if (counter == 0) counter = 1;
+        lastUpdate = now;
+        await prefs.setInt('counter_value', counter);
+        await prefs.setString(
+          'counter_last_update',
+          lastUpdate.toIso8601String(),
+        );
+        debugPrint('Background Service: Counter value: $counter');
+      }
+
       // Always send the current total time (including accumulated time)
       final totalSeconds = stopwatchManager.totalElapsedSeconds;
-      service.invoke('update', {'seconds': totalSeconds});
+      service.invoke('update', {'seconds': totalSeconds, 'counter': counter});
 
       // Periodically save state
       if (DateTime.now().second % 10 == 0) {
@@ -163,6 +214,8 @@ void onStart(ServiceInstance service) async {
     debugPrint('Background Service: Error in main loop: $e');
     // Save state before error
     await stopwatchManager.saveState();
+    await prefs.setInt('counter_value', counter);
+    await prefs.setString('counter_last_update', lastUpdate.toIso8601String());
     await service.stopSelf();
   }
 }

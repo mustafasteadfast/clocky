@@ -3,6 +3,8 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../bloc/stopwatch_bloc.dart';
 import 'dart:math' as math;
+import 'dart:async';
+import 'package:flutter_background_service/flutter_background_service.dart';
 
 class StopwatchScreen extends StatefulWidget {
   @override
@@ -12,18 +14,45 @@ class StopwatchScreen extends StatefulWidget {
 class _StopwatchScreenState extends State<StopwatchScreen>
     with WidgetsBindingObserver {
   bool _bgOperation = false;
+  int _counter = 0;
+  Timer? _counterTimer;
+  final _service = FlutterBackgroundService();
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _checkPermissionsAndLoadState();
+    _initializeCounter();
+    _setupBackgroundUpdates();
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _counterTimer?.cancel();
     super.dispose();
+  }
+
+  void _setupBackgroundUpdates() {
+    _service.on('update').listen((event) {
+      if (event != null) {
+        final counter = event['counter'] as int?;
+        if (counter != null) {
+          setState(() {
+            _counter = counter;
+          });
+        }
+      }
+    });
+  }
+
+  Future<void> _initializeCounter() async {
+    final prefs = await SharedPreferences.getInstance();
+    final savedCounter = prefs.getInt('counter_value') ?? 0;
+    setState(() {
+      _counter = savedCounter;
+    });
   }
 
   @override
@@ -85,6 +114,30 @@ class _StopwatchScreenState extends State<StopwatchScreen>
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
+            // Add the counter display
+            Container(
+              margin: EdgeInsets.only(bottom: 30),
+              padding: EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+              decoration: BoxDecoration(
+                color: Colors.black.withOpacity(0.7),
+                borderRadius: BorderRadius.circular(20),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.3),
+                    blurRadius: 10,
+                    spreadRadius: 2,
+                  ),
+                ],
+              ),
+              child: Text(
+                'Counter: $_counter',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 24,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
             BlocBuilder<StopwatchBloc, StopwatchState>(
               builder: (context, state) {
                 return StreamBuilder<int>(

@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "165242819528",
+    "project_id": "alarm-1375f",
+    "storage_bucket": "alarm-1375f.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:165242819528:android:1f9119eec2063ac1a2a6fd",
+        "android_client_info": {
+          "package_name": "com.example.clocky"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDYTR_UUu2je05AUP8r9Rj5WkW6naPg3js"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
