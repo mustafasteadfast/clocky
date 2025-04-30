@@ -1,3 +1,4 @@
+import 'package:audioplayers/audioplayers.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -6,6 +7,21 @@ import 'package:shared_preferences/shared_preferences.dart';
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   final prefs = await SharedPreferences.getInstance();
   final counter = prefs.getInt('counter_value') ?? 0;
+
+  // Initialize audio player with proper settings
+  final player =
+      AudioPlayer()
+        ..setReleaseMode(ReleaseMode.loop) // Loop the sound
+        ..setAudioContext(
+          const AudioContext(
+            android: AudioContextAndroid(
+              audioMode: AndroidAudioMode.normal,
+              audioFocus: AndroidAudioFocus.gain,
+              contentType: AndroidContentType.sonification,
+              usageType: AndroidUsageType.alarm,
+            ),
+          ),
+        );
 
   debugPrint(
     '@@@@@@@@@@@@@@@@@@@@@ Background Notification Received @@@@@@@@@@@@@@@@@@@@@@@@@@@',
@@ -19,6 +35,23 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   debugPrint('TTL: ${message.ttl}');
   debugPrint('🔔 Counter Value When Received: $counter 🔔');
   debugPrint('🔔 __________________________ 🔔');
+
+  try {
+    // Play alarm sound
+    debugPrint('🔔 Playing alarm sound... 🔔');
+    await player.play(AssetSource('Alarm Sound Effect.mp3'));
+
+    // Set up a timer to stop the alarm after 20 seconds
+    await Future.delayed(const Duration(seconds: 20));
+
+    debugPrint('🔔 Stopping alarm sound... 🔔');
+    await player.stop();
+    debugPrint('🔔 Alarm dismissed after 20 seconds! 🔔');
+  } catch (e) {
+    debugPrint('🔔 Error playing/stopping alarm: $e 🔔');
+  } finally {
+    await player.dispose();
+  }
 }
 
 class FirebaseMsg {
